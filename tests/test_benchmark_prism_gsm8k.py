@@ -9,7 +9,9 @@ from benchmark_prism_gsm8k import (
     compute_group_metrics,
     extract_gold_answer,
     extract_number_fraction,
+    get_demographic_value,
     parse_intersectional_buckets,
+    race_from_ethnicity_value,
     select_examples,
 )
 
@@ -95,6 +97,17 @@ class TestBenchmarkPrismGsm8k(unittest.TestCase):
         b = select_examples(data, num_questions=4, sampling="random", seed=99)
         self.assertEqual([row["id"] for row in a], [row["id"] for row in b])
         self.assertNotEqual([row["id"] for row in a], [0, 1, 2, 3])
+
+    def test_race_from_ethnicity_json(self) -> None:
+        value = '{"self_described":"african/black","categorised":"Black / African","simplified":"Black"}'
+        self.assertEqual(race_from_ethnicity_value(value), "Black")
+
+    def test_get_demographic_value_race_from_ethnicity_when_race_missing(self) -> None:
+        demographics = {
+            "ethnicity": '{"self_described":"caucasian","categorised":"White","simplified":"White"}',
+            "gender": "male",
+        }
+        self.assertEqual(get_demographic_value(demographics, "race"), "White")
 
 if __name__ == "__main__":
     unittest.main()

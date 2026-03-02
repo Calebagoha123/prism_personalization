@@ -232,6 +232,31 @@ def safe_str(value: Any) -> str:
     return str(value).strip()
 
 
+def parse_json_like(value: Any) -> Optional[Dict[str, Any]]:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def race_from_ethnicity_value(value: Any) -> str:
+    parsed = parse_json_like(value)
+    if parsed:
+        for key in ("simplified", "categorised", "categorized", "self_described"):
+            v = safe_str(parsed.get(key))
+            if v:
+                return v
+    return safe_str(value)
+
+
 def get_demographic_value(demographics: Dict[str, Any], target_field: str) -> str:
     target = target_field.lower().strip()
     for k, v in demographics.items():
@@ -241,6 +266,11 @@ def get_demographic_value(demographics: Dict[str, Any], target_field: str) -> st
         kl = k.lower().strip()
         if target in kl or kl in target:
             return safe_str(v)
+    if target == "race":
+        for k, v in demographics.items():
+            kl = k.lower().strip()
+            if "ethnicity" in kl:
+                return race_from_ethnicity_value(v)
     return ""
 
 
