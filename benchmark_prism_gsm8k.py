@@ -4,6 +4,7 @@ import json
 import os
 import random
 import re
+import warnings
 from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass
@@ -322,12 +323,23 @@ def choose_conversation_text(row: Dict[str, Any]) -> str:
 def load_prism_data(token: str, max_history_chars: int) -> List[PrismConversation]:
     if load_dataset is None:
         raise ImportError("Missing 'datasets' package. Install dependencies before running benchmark.")
-    survey = load_dataset(PRISM_DATASET, "survey", split="train", token=token)
     conversations = load_dataset(PRISM_DATASET, "conversations", split="train", token=token)
+    survey = None
+    try:
+        survey = load_dataset(PRISM_DATASET, "survey", split="train", token=token)
+    except Exception as exc:  # pragma: no cover
+        warnings.warn(
+            "PRISM 'survey' config could not be loaded. Proceeding without survey join; "
+            "demographics will be inferred from conversations rows when available. "
+            f"Original error: {exc}"
+        )
 
-    survey_id_key, convo_id_key = detect_join_key(survey, conversations)
+    survey_id_key: Optional[str] = None
+    convo_id_key: Optional[str] = None
+    if survey is not None:
+        survey_id_key, convo_id_key = detect_join_key(survey, conversations)
     survey_by_user: Dict[str, Dict[str, Any]] = {}
-    if survey_id_key:
+    if survey is not None and survey_id_key:
         for row in survey:
             uid = safe_str(row.get(survey_id_key))
             if uid:
@@ -345,7 +357,8 @@ def load_prism_data(token: str, max_history_chars: int) -> List[PrismConversatio
 
         user_id = safe_str(row.get(convo_id_key)) if convo_id_key else ""
         user_id = user_id or None
-        demographics = survey_by_user.get(user_id, {}) if user_id else {}
+        demographics = dict(survey_by_user.get(user_id, {})) if user_id else {}
+        demographics.update(extract_demographics(row))
 
         conversation_id = safe_str(row.get(convo_id_field)) if convo_id_field else f"row_{i}"
         if not conversation_id:
@@ -479,6 +492,14 @@ def compute_group_metrics(rows: List[Dict[str, Any]], group_by: List[str]) -> Di
     return grouped
 
 
+def compute_bucket_counts(items: Sequence[PrismConversation], fields: Sequence[str]) -> Dict[str, int]:
+    counts: Dict[str, int] = defaultdict(int)
+    for item in items:
+        key = "|".join(canonicalize_demo_value(get_demographic_value(item.demographics, f), f) for f in fields)
+        counts[key] += 1
+    return dict(sorted(counts.items()))
+
+
 def ensure_hf_hub_cache(cache_dir: str, create_if_missing: bool) -> str:
     path = Path(cache_dir).expanduser()
     if path.exists():
@@ -568,13 +589,22 @@ def main() -> None:
     run_accuracies: List[float] = []
     for run_idx in range(args.num_runs):
         if args.balanced_intersectional_sampling:
-            sampler = IntersectionalSampler(
-                prism_items,
-                fields=args.intersectional_fields,
-                target_buckets=target_buckets,
-                strategy=args.sampling_strategy,
-                seed=args.seed + run_idx,
-            )
+            try:
+                sampler = IntersectionalSampler(
+                    prism_items,
+                    fields=args.intersectional_fields,
+                    target_buckets=target_buckets,
+                    strategy=args.sampling_strategy,
+                    seed=args.seed + run_idx,
+                )
+            except ValueError as exc:
+                available = compute_bucket_counts(prism_items, args.intersectional_fields)
+                raise ValueError(
+                    "Balanced intersectional sampling requested, but none of the configured buckets are available. "
+                    f"Configured: {['|'.join(b) for b in target_buckets]}. "
+                    f"Available from loaded PRISM demographics: {available}. "
+                    "If survey is unavailable in cache, disable --balanced-intersectional-sampling or load survey config."
+                ) from exc
         else:
             sampler = ConversationSampler(prism_items, args.sampling_strategy, args.seed + run_idx)
 
