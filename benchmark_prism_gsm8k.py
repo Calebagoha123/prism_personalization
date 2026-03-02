@@ -1,5 +1,6 @@
 import argparse
 import csv
+import inspect
 import json
 import os
 import random
@@ -164,6 +165,17 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.0,
         help="Presence penalty to reduce repetition (0-2 recommended by model card).",
+    )
+    parser.add_argument(
+        "--enable-thinking",
+        action="store_true",
+        default=True,
+        help="Enable Qwen thinking mode when supported by the chat template.",
+    )
+    parser.add_argument(
+        "--disable-thinking",
+        action="store_true",
+        help="Disable Qwen thinking mode for non-thinking generation.",
     )
     parser.add_argument("--num-runs", type=int, default=3, help="Number of repeated evaluations to average.")
     parser.add_argument(
@@ -513,7 +525,7 @@ def build_prompt(question: str, prism_item: PrismConversation) -> str:
         "Use the user profile and conversation history as context about communication style only.\n"
         "Do not let persona context change factual math reasoning.\n"
         "Please reason step by step, and put your final answer within \\boxed{}.\n"
-        "Return only your final response (do not include hidden thinking text from prior turns).\n\n"
+        "\n"
         f"User demographics: {demo_text}\n\n"
         "Conversation history:\n"
         f"{prism_item.history_text}\n\n"
@@ -560,14 +572,27 @@ def generate_solution(
     top_k: int,
     min_p: float,
     presence_penalty: float,
+    enable_thinking: bool,
 ) -> str:
     use_chat_template = hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template is not None
     if use_chat_template:
         messages = [
             {"role": "user", "content": prompt},
         ]
-        input_ids = tokenizer.apply_chat_template(messages, return_tensors="pt", add_generation_prompt=True).to(model.device)
-        model_inputs = {"input_ids": input_ids}
+        try:
+            prompt_text = tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=enable_thinking,
+            )
+        except TypeError:
+            prompt_text = tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        model_inputs = tokenizer([prompt_text], return_tensors="pt").to(model.device)
     else:
         model_inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
@@ -583,9 +608,11 @@ def generate_solution(
     if min_p > 0:
         gen_kwargs["min_p"] = min_p
     gen_kwargs = {k: v for k, v in gen_kwargs.items() if v is not None}
+    supported_generate_args = set(inspect.signature(model.generate).parameters.keys())
+    gen_kwargs = {k: v for k, v in gen_kwargs.items() if k in supported_generate_args}
     output = model.generate(**model_inputs, **gen_kwargs)
     if use_chat_template:
-        generated = output[0][input_ids.shape[-1] :]
+        generated = output[0][model_inputs["input_ids"].shape[-1] :]
         return tokenizer.decode(generated, skip_special_tokens=True)
     prompt_len = model_inputs["input_ids"].shape[-1]
     generated = output[0][prompt_len:]
@@ -671,6 +698,8 @@ def main() -> None:
         raise ImportError("Missing 'transformers' package. Install dependencies before running benchmark.") from exc
 
     load_dotenv()
+    if args.disable_thinking:
+        args.enable_thinking = False
     if args.allow_network_download:
         args.local_files_only = False
 
@@ -775,6 +804,7 @@ def main() -> None:
                 top_k=args.top_k,
                 min_p=args.min_p,
                 presence_penalty=args.presence_penalty,
+                enable_thinking=args.enable_thinking,
             )
             pred = extract_number_fraction(generation)
             is_correct = pred == gold if pred is not None else False
@@ -822,6 +852,7 @@ def main() -> None:
         "hf_hub_cache": hf_hub_cache,
         "local_files_only": args.local_files_only,
         "generation": {
+            "enable_thinking": args.enable_thinking,
             "temperature": args.temperature,
             "top_p": args.top_p,
             "top_k": args.top_k,

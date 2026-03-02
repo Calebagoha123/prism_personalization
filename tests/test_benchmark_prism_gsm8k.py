@@ -34,10 +34,9 @@ class TestBenchmarkPrismGsm8k(unittest.TestCase):
         output = "scratch 9 then final \\boxed{13/2}"
         self.assertEqual(extract_number_fraction(output), Fraction(13, 2))
 
-    def test_build_prompt_contains_deepseek_directives(self) -> None:
+    def test_build_prompt_contains_math_format_directives(self) -> None:
         prompt = build_prompt("What is 2+2?", make_conv("c1", "white", "male"))
         self.assertIn("Please reason step by step, and put your final answer within \\boxed{}.", prompt)
-        self.assertIn("Return only your final response", prompt)
         self.assertIn("Next user message:", prompt)
         self.assertNotIn("Math question:", prompt)
 
