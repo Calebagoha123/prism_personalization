@@ -82,13 +82,13 @@ Generate plots from the CSV:
 ```bash
 uv run plot_baseline_vs_prism.py \
   --csv /data/kell8360/results_baseline_vs_prism.csv \
-  --output-dir /data/kell8360/plots_baseline_vs_prism
+  --output-dir figures/plots_baseline_vs_prism
 ```
 
 Outputs:
-- `overall_comparison.png`
-- `race_gender_comparison.png`
-- `intersectional_comparison.png`
+- `figures/plots_baseline_vs_prism/overall_comparison.png`
+- `figures/plots_baseline_vs_prism/race_gender_comparison.png`
+- `figures/plots_baseline_vs_prism/intersectional_comparison.png`
 
 Outputs:
 - `results_prism_gsm8k.csv`: one row per GSM8K question, including sampled PRISM conversation and correctness.

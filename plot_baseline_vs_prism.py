@@ -16,7 +16,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output-dir",
-        default="/data/kell8360/plots_baseline_vs_prism",
+        default="figures/plots_baseline_vs_prism",
         help="Directory to write plots.",
     )
     return parser.parse_args()
