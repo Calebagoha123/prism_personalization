@@ -687,6 +687,8 @@ def generate_solution(
         model_inputs = to_model_inputs(encoded)
     else:
         model_inputs = to_model_inputs(tokenizer(prompt, return_tensors="pt"))
+    if "attention_mask" not in model_inputs and "input_ids" in model_inputs and torch is not None:
+        model_inputs["attention_mask"] = torch.ones_like(model_inputs["input_ids"])
 
     gen_kwargs = {
         "max_new_tokens": max_new_tokens,
