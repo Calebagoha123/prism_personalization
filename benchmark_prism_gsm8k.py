@@ -1,6 +1,5 @@
 import argparse
 import csv
-import inspect
 import json
 import os
 import random
@@ -697,14 +696,17 @@ def generate_solution(
         "temperature": temperature,
         "top_p": top_p,
         "top_k": top_k,
-        "presence_penalty": presence_penalty,
         "pad_token_id": tokenizer.eos_token_id,
     }
-    if min_p > 0:
+    # Only pass optional knobs when runtime supports them.
+    generation_keys = set()
+    if hasattr(model, "generation_config") and model.generation_config is not None:
+        generation_keys = set(model.generation_config.to_dict().keys())
+    if min_p > 0 and "min_p" in generation_keys:
         gen_kwargs["min_p"] = min_p
+    if presence_penalty and "presence_penalty" in generation_keys:
+        gen_kwargs["presence_penalty"] = presence_penalty
     gen_kwargs = {k: v for k, v in gen_kwargs.items() if v is not None}
-    supported_generate_args = set(inspect.signature(model.generate).parameters.keys())
-    gen_kwargs = {k: v for k, v in gen_kwargs.items() if k in supported_generate_args}
     output = model.generate(**model_inputs, **gen_kwargs)
     if use_chat_template:
         generated = output[0][model_inputs["input_ids"].shape[-1] :]
