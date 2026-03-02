@@ -20,6 +20,7 @@ HF_TOKEN=your_huggingface_token
 uv run benchmark_prism_gsm8k.py \
   --model Qwen/Qwen3-4B-Thinking-2507 \
   --hf-hub-cache /data/resource/huggingface/hub \
+  --prism-local-dir /Users/calebagoha/Downloads/prism \
   --output-dir /data/kell8360 \
   --create-output-dir \
   --num-questions 100 \
@@ -40,6 +41,7 @@ uv run benchmark_prism_gsm8k.py \
 Model files and datasets are loaded from `/data/resource/huggingface/hub` by default.
 The script runs in local-cache-only mode by default (`--local-files-only`).
 If you want download fallback from Hub, pass `--allow-network-download` and provide `HF_TOKEN`.
+If you already exported PRISM as JSONL files, pass `--prism-local-dir` and the script will load `conversations.jsonl` and `survey.jsonl` directly.
 Benchmark outputs are written under `/data/kell8360` by default (or `--output-dir`).
 When `--num-questions` is set, GSM8K examples are randomly sampled by seed by default (`--gsm-sampling random`) to reduce ordering bias.
 

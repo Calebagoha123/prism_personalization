@@ -205,6 +205,11 @@ def parse_args() -> argparse.Namespace:
         help="Create --hf-hub-cache directory if it does not exist.",
     )
     parser.add_argument(
+        "--prism-local-dir",
+        default="",
+        help="Optional local directory containing PRISM JSONL files (conversations.jsonl, survey.jsonl).",
+    )
+    parser.add_argument(
         "--local-files-only",
         action="store_true",
         default=True,
@@ -340,27 +345,47 @@ def choose_conversation_text(row: Dict[str, Any]) -> str:
     return ""
 
 
-def load_prism_data(token: Optional[str], max_history_chars: int, cache_dir: str, local_files_only: bool) -> List[PrismConversation]:
+def load_prism_split_local(local_dir: str, split_name: str, cache_dir: str) -> Dataset:
+    path = Path(local_dir).expanduser() / f"{split_name}.jsonl"
+    if not path.exists():
+        raise FileNotFoundError(f"Missing local PRISM file: {path}")
+    return load_dataset("json", data_files=str(path), split="train", cache_dir=cache_dir)
+
+
+def load_prism_data(
+    token: Optional[str],
+    max_history_chars: int,
+    cache_dir: str,
+    local_files_only: bool,
+    prism_local_dir: str = "",
+) -> List[PrismConversation]:
     if load_dataset is None:
         raise ImportError("Missing 'datasets' package. Install dependencies before running benchmark.")
-    conversations = load_dataset(
-        PRISM_DATASET,
-        "conversations",
-        split="train",
-        token=token,
-        cache_dir=cache_dir,
-        local_files_only=local_files_only,
-    )
-    survey = None
-    try:
-        survey = load_dataset(
+    use_local_prism = bool(safe_str(prism_local_dir))
+    if use_local_prism:
+        conversations = load_prism_split_local(prism_local_dir, "conversations", cache_dir)
+    else:
+        conversations = load_dataset(
             PRISM_DATASET,
-            "survey",
+            "conversations",
             split="train",
             token=token,
             cache_dir=cache_dir,
             local_files_only=local_files_only,
         )
+    survey = None
+    try:
+        if use_local_prism:
+            survey = load_prism_split_local(prism_local_dir, "survey", cache_dir)
+        else:
+            survey = load_dataset(
+                PRISM_DATASET,
+                "survey",
+                split="train",
+                token=token,
+                cache_dir=cache_dir,
+                local_files_only=local_files_only,
+            )
     except Exception as exc:  # pragma: no cover
         warnings.warn(
             "PRISM 'survey' config could not be loaded. Proceeding without survey join; "
@@ -624,7 +649,13 @@ def main() -> None:
         raise ValueError("Temperature must be > 0 for Qwen3 thinking-mode sampling.")
 
     hf_hub_cache = ensure_hf_hub_cache(args.hf_hub_cache, args.create_hf_hub_cache)
-    prism_items = load_prism_data(token, args.max_history_chars, hf_hub_cache, args.local_files_only)
+    prism_items = load_prism_data(
+        token,
+        args.max_history_chars,
+        hf_hub_cache,
+        args.local_files_only,
+        prism_local_dir=args.prism_local_dir,
+    )
     gsm_examples_all = load_gsm8k(
         args.gsm_config,
         args.gsm_split,
@@ -741,6 +772,7 @@ def main() -> None:
         "gsm8k_dataset": {"name": GSM8K_DATASET, "config": args.gsm_config, "split": args.gsm_split},
         "gsm_sampling": args.gsm_sampling,
         "prism_dataset": {"name": PRISM_DATASET, "configs": ["survey", "conversations"]},
+        "prism_local_dir": args.prism_local_dir or None,
         "sampling_strategy": args.sampling_strategy,
         "balanced_intersectional_sampling": args.balanced_intersectional_sampling,
         "intersectional_fields": args.intersectional_fields,
