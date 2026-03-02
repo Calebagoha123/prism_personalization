@@ -161,6 +161,16 @@ def parse_args() -> argparse.Namespace:
         default=2000,
         help="How many chars of raw model output to save per row for debugging.",
     )
+    parser.add_argument(
+        "--save-full-outputs",
+        action="store_true",
+        help="Write full, untruncated model outputs to JSONL.",
+    )
+    parser.add_argument(
+        "--full-outputs-jsonl",
+        default="full_outputs_prism_gsm8k.jsonl",
+        help="Filename for full output JSONL (under --output-dir unless absolute path).",
+    )
     parser.add_argument("--max-new-tokens", type=int, default=32768, help="Generation cap.")
     parser.add_argument("--temperature", type=float, default=0.6, help="Sampling temperature.")
     parser.add_argument("--top-p", type=float, default=0.95, help="Nucleus sampling top-p.")
@@ -779,6 +789,7 @@ def main() -> None:
     output_dir = ensure_directory(args.output_dir, args.create_output_dir, "--output-dir", "--create-output-dir")
     output_csv_path = resolve_output_path(output_dir, args.output_csv)
     summary_json_path = resolve_output_path(output_dir, args.summary_json)
+    full_outputs_jsonl_path = resolve_output_path(output_dir, args.full_outputs_jsonl)
 
     tokenizer = AutoTokenizer.from_pretrained(
         args.model,
@@ -798,6 +809,9 @@ def main() -> None:
 
     rows: List[Dict[str, Any]] = []
     run_accuracies: List[float] = []
+    full_outputs_file = None
+    if args.save_full_outputs:
+        full_outputs_file = open(full_outputs_jsonl_path, "w", encoding="utf-8")
     for run_idx in range(args.num_runs):
         if args.balanced_intersectional_sampling:
             try:
@@ -865,7 +879,26 @@ def main() -> None:
             for field in args.group_by:
                 row[field] = get_demographic_value(prism_item.demographics, field) or "unknown"
             rows.append(row)
+            if full_outputs_file is not None:
+                full_record = {
+                    "run": run_idx,
+                    "index": i,
+                    "conversation_id": prism_item.conversation_id,
+                    "user_id": prism_item.user_id or "",
+                    "intersectional_bucket": intersectional_bucket,
+                    "question": question,
+                    "gold": str(gold),
+                    "prediction": str(pred) if pred is not None else "",
+                    "correct": int(is_correct),
+                    "raw_output": generation,
+                }
+                for field in args.group_by:
+                    full_record[field] = get_demographic_value(prism_item.demographics, field) or "unknown"
+                full_outputs_file.write(json.dumps(full_record, ensure_ascii=False) + "\n")
         run_accuracies.append((run_correct / run_total) if run_total else 0.0)
+
+    if full_outputs_file is not None:
+        full_outputs_file.close()
 
     with open(output_csv_path, "w", newline="", encoding="utf-8") as f:
         fieldnames = list(rows[0].keys()) if rows else ["index", "correct"]
@@ -902,6 +935,7 @@ def main() -> None:
         },
         "output_dir": output_dir,
         "output_csv": output_csv_path,
+        "full_outputs_jsonl": full_outputs_jsonl_path if args.save_full_outputs else None,
     }
 
     with open(summary_json_path, "w", encoding="utf-8") as f:
