@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 PRISM_DATASET = "HannahRoseKirk/prism-alignment"
 GSM8K_DATASET = "openai/gsm8k"
-DEFAULT_MODEL = "deepseek-ai/DeepSeek-R1-Distill-Llama-8B"
+DEFAULT_MODEL = "Qwen/Qwen3-4B-Thinking-2507"
 
 ID_CANDIDATES = [
     "user_id",
@@ -153,8 +153,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--group-by", nargs="+", default=["gender"], help="Demographic fields for grouped accuracy.")
     parser.add_argument("--max-history-chars", type=int, default=2000, help="Max chars from conversation history.")
-    parser.add_argument("--max-new-tokens", type=int, default=256, help="Generation cap.")
+    parser.add_argument("--max-new-tokens", type=int, default=32768, help="Generation cap.")
     parser.add_argument("--temperature", type=float, default=0.6, help="Sampling temperature.")
+    parser.add_argument("--top-p", type=float, default=0.95, help="Nucleus sampling top-p.")
+    parser.add_argument("--top-k", type=int, default=20, help="Top-k sampling.")
+    parser.add_argument("--min-p", type=float, default=0.0, help="Min-p sampling; requires backend support.")
+    parser.add_argument(
+        "--presence-penalty",
+        type=float,
+        default=0.0,
+        help="Presence penalty to reduce repetition (0-2 recommended by model card).",
+    )
     parser.add_argument("--num-runs", type=int, default=3, help="Number of repeated evaluations to average.")
     parser.add_argument(
         "--intersectional-fields",
@@ -194,6 +203,17 @@ def parse_args() -> argparse.Namespace:
         "--create-hf-hub-cache",
         action="store_true",
         help="Create --hf-hub-cache directory if it does not exist.",
+    )
+    parser.add_argument(
+        "--local-files-only",
+        action="store_true",
+        default=True,
+        help="Load model/datasets from local HF cache only (default: true).",
+    )
+    parser.add_argument(
+        "--allow-network-download",
+        action="store_true",
+        help="Allow downloading from Hugging Face Hub when cache misses happen.",
     )
     return parser.parse_args()
 
@@ -320,13 +340,27 @@ def choose_conversation_text(row: Dict[str, Any]) -> str:
     return ""
 
 
-def load_prism_data(token: str, max_history_chars: int) -> List[PrismConversation]:
+def load_prism_data(token: Optional[str], max_history_chars: int, cache_dir: str, local_files_only: bool) -> List[PrismConversation]:
     if load_dataset is None:
         raise ImportError("Missing 'datasets' package. Install dependencies before running benchmark.")
-    conversations = load_dataset(PRISM_DATASET, "conversations", split="train", token=token)
+    conversations = load_dataset(
+        PRISM_DATASET,
+        "conversations",
+        split="train",
+        token=token,
+        cache_dir=cache_dir,
+        local_files_only=local_files_only,
+    )
     survey = None
     try:
-        survey = load_dataset(PRISM_DATASET, "survey", split="train", token=token)
+        survey = load_dataset(
+            PRISM_DATASET,
+            "survey",
+            split="train",
+            token=token,
+            cache_dir=cache_dir,
+            local_files_only=local_files_only,
+        )
     except Exception as exc:  # pragma: no cover
         warnings.warn(
             "PRISM 'survey' config could not be loaded. Proceeding without survey join; "
@@ -375,10 +409,23 @@ def load_prism_data(token: str, max_history_chars: int) -> List[PrismConversatio
     return items
 
 
-def load_gsm8k(config: str, split: str, token: str, num_questions: int) -> List[Dict[str, Any]]:
+def load_gsm8k(
+    config: str,
+    split: str,
+    token: Optional[str],
+    cache_dir: str,
+    local_files_only: bool,
+) -> List[Dict[str, Any]]:
     if load_dataset is None:
         raise ImportError("Missing 'datasets' package. Install dependencies before running benchmark.")
-    ds = load_dataset(GSM8K_DATASET, config, split=split, token=token)
+    ds = load_dataset(
+        GSM8K_DATASET,
+        config,
+        split=split,
+        token=token,
+        cache_dir=cache_dir,
+        local_files_only=local_files_only,
+    )
     return list(ds)
 
 
@@ -404,7 +451,7 @@ def build_prompt(question: str, prism_item: PrismConversation) -> str:
         "Use the user profile and conversation history as context about communication style only.\n"
         "Do not let persona context change factual math reasoning.\n"
         "Please reason step by step, and put your final answer within \\boxed{}.\n"
-        "Start your response with exactly '<think>\\n'.\n\n"
+        "Return only your final response (do not include hidden thinking text from prior turns).\n\n"
         f"User demographics: {demo_text}\n\n"
         "Conversation history:\n"
         f"{prism_item.history_text}\n\n"
@@ -447,6 +494,10 @@ def generate_solution(
     prompt: str,
     max_new_tokens: int,
     temperature: float,
+    top_p: float,
+    top_k: int,
+    min_p: float,
+    presence_penalty: float,
 ) -> str:
     use_chat_template = hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template is not None
     if use_chat_template:
@@ -460,10 +511,15 @@ def generate_solution(
 
     gen_kwargs = {
         "max_new_tokens": max_new_tokens,
-        "do_sample": temperature > 0,
-        "temperature": temperature if temperature > 0 else None,
+        "do_sample": True,
+        "temperature": temperature,
+        "top_p": top_p,
+        "top_k": top_k,
+        "presence_penalty": presence_penalty,
         "pad_token_id": tokenizer.eos_token_id,
     }
+    if min_p > 0:
+        gen_kwargs["min_p"] = min_p
     gen_kwargs = {k: v for k, v in gen_kwargs.items() if v is not None}
     output = model.generate(**model_inputs, **gen_kwargs)
     if use_chat_template:
@@ -553,15 +609,29 @@ def main() -> None:
         raise ImportError("Missing 'transformers' package. Install dependencies before running benchmark.") from exc
 
     load_dotenv()
+    if args.allow_network_download:
+        args.local_files_only = False
+
     token = os.getenv(args.hf_token_env)
-    if not token:
-        raise ValueError(f"Missing Hugging Face token in env var '{args.hf_token_env}'.")
+    if not token and not args.local_files_only:
+        raise ValueError(
+            f"Missing Hugging Face token in env var '{args.hf_token_env}' while network download is enabled."
+        )
 
     random.seed(args.seed)
     torch.manual_seed(args.seed)
+    if args.temperature <= 0:
+        raise ValueError("Temperature must be > 0 for Qwen3 thinking-mode sampling.")
 
-    prism_items = load_prism_data(token, args.max_history_chars)
-    gsm_examples_all = load_gsm8k(args.gsm_config, args.gsm_split, token, args.num_questions)
+    hf_hub_cache = ensure_hf_hub_cache(args.hf_hub_cache, args.create_hf_hub_cache)
+    prism_items = load_prism_data(token, args.max_history_chars, hf_hub_cache, args.local_files_only)
+    gsm_examples_all = load_gsm8k(
+        args.gsm_config,
+        args.gsm_split,
+        token,
+        hf_hub_cache,
+        args.local_files_only,
+    )
     gsm_examples = select_examples(
         gsm_examples_all,
         num_questions=args.num_questions,
@@ -570,16 +640,21 @@ def main() -> None:
     )
 
     target_buckets = parse_intersectional_buckets(args.intersectional_buckets, len(args.intersectional_fields))
-    hf_hub_cache = ensure_hf_hub_cache(args.hf_hub_cache, args.create_hf_hub_cache)
     output_dir = ensure_directory(args.output_dir, args.create_output_dir, "--output-dir", "--create-output-dir")
     output_csv_path = resolve_output_path(output_dir, args.output_csv)
     summary_json_path = resolve_output_path(output_dir, args.summary_json)
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model, token=token, cache_dir=hf_hub_cache)
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.model,
+        token=token,
+        cache_dir=hf_hub_cache,
+        local_files_only=args.local_files_only,
+    )
     model = AutoModelForCausalLM.from_pretrained(
         args.model,
         token=token,
         cache_dir=hf_hub_cache,
+        local_files_only=args.local_files_only,
         torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
         device_map="auto",
     )
@@ -628,6 +703,10 @@ def main() -> None:
                 prompt=prompt,
                 max_new_tokens=args.max_new_tokens,
                 temperature=args.temperature,
+                top_p=args.top_p,
+                top_k=args.top_k,
+                min_p=args.min_p,
+                presence_penalty=args.presence_penalty,
             )
             pred = extract_number_fraction(generation)
             is_correct = pred == gold if pred is not None else False
@@ -672,6 +751,15 @@ def main() -> None:
         "overall_accuracy_per_run": run_accuracies,
         "group_metrics": group_metrics,
         "hf_hub_cache": hf_hub_cache,
+        "local_files_only": args.local_files_only,
+        "generation": {
+            "temperature": args.temperature,
+            "top_p": args.top_p,
+            "top_k": args.top_k,
+            "min_p": args.min_p,
+            "presence_penalty": args.presence_penalty,
+            "max_new_tokens": args.max_new_tokens,
+        },
         "output_dir": output_dir,
         "output_csv": output_csv_path,
     }

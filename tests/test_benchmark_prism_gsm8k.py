@@ -35,7 +35,7 @@ class TestBenchmarkPrismGsm8k(unittest.TestCase):
     def test_build_prompt_contains_deepseek_directives(self) -> None:
         prompt = build_prompt("What is 2+2?", make_conv("c1", "white", "male"))
         self.assertIn("Please reason step by step, and put your final answer within \\boxed{}.", prompt)
-        self.assertIn("Start your response with exactly '<think>\\n'.", prompt)
+        self.assertIn("Return only your final response", prompt)
         self.assertIn("Next user message:", prompt)
         self.assertNotIn("Math question:", prompt)
 

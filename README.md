@@ -8,7 +8,7 @@ Run GSM8K with PRISM conversation context and report accuracy by demographic gro
 uv sync
 ```
 
-Create `.env`:
+Create `.env` only if you want network fallback downloads:
 
 ```bash
 HF_TOKEN=your_huggingface_token
@@ -18,15 +18,18 @@ HF_TOKEN=your_huggingface_token
 
 ```bash
 uv run benchmark_prism_gsm8k.py \
-  --model deepseek-ai/DeepSeek-R1-Distill-Llama-8B \
+  --model Qwen/Qwen3-4B-Thinking-2507 \
   --hf-hub-cache /data/resource/huggingface/hub \
-  --create-hf-hub-cache \
   --output-dir /data/kell8360 \
   --create-output-dir \
   --num-questions 100 \
   --gsm-sampling random \
   --num-runs 3 \
+  --max-new-tokens 32768 \
   --temperature 0.6 \
+  --top-p 0.95 \
+  --top-k 20 \
+  --min-p 0.0 \
   --sampling-strategy without_replacement \
   --group-by gender race age_group \
   --balanced-intersectional-sampling \
@@ -34,7 +37,9 @@ uv run benchmark_prism_gsm8k.py \
   --intersectional-buckets "white|male,white|female,black|male,black|female"
 ```
 
-Model files are cached/installed under `/data/resource/huggingface/hub`. The script checks this directory first and can create it when `--create-hf-hub-cache` is provided.
+Model files and datasets are loaded from `/data/resource/huggingface/hub` by default.
+The script runs in local-cache-only mode by default (`--local-files-only`).
+If you want download fallback from Hub, pass `--allow-network-download` and provide `HF_TOKEN`.
 Benchmark outputs are written under `/data/kell8360` by default (or `--output-dir`).
 When `--num-questions` is set, GSM8K examples are randomly sampled by seed by default (`--gsm-sampling random`) to reduce ordering bias.
 
