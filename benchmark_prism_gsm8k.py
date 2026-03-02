@@ -17,9 +17,10 @@ except ImportError:  # pragma: no cover
     torch = None  # type: ignore[assignment]
 
 try:
-    from datasets import Dataset, load_dataset
+    from datasets import Dataset, DownloadConfig, load_dataset
 except ImportError:  # pragma: no cover
     Dataset = Any  # type: ignore[misc,assignment]
+    DownloadConfig = None  # type: ignore[assignment]
     load_dataset = None  # type: ignore[assignment]
 
 if TYPE_CHECKING:
@@ -352,6 +353,12 @@ def load_prism_split_local(local_dir: str, split_name: str, cache_dir: str) -> D
     return load_dataset("json", data_files=str(path), split="train", cache_dir=cache_dir)
 
 
+def make_download_config(local_files_only: bool) -> Optional["DownloadConfig"]:
+    if DownloadConfig is None:
+        return None
+    return DownloadConfig(local_files_only=local_files_only)
+
+
 def load_prism_data(
     token: Optional[str],
     max_history_chars: int,
@@ -371,7 +378,7 @@ def load_prism_data(
             split="train",
             token=token,
             cache_dir=cache_dir,
-            local_files_only=local_files_only,
+            download_config=make_download_config(local_files_only),
         )
     survey = None
     try:
@@ -384,7 +391,7 @@ def load_prism_data(
                 split="train",
                 token=token,
                 cache_dir=cache_dir,
-                local_files_only=local_files_only,
+                download_config=make_download_config(local_files_only),
             )
     except Exception as exc:  # pragma: no cover
         warnings.warn(
@@ -449,7 +456,7 @@ def load_gsm8k(
         split=split,
         token=token,
         cache_dir=cache_dir,
-        local_files_only=local_files_only,
+        download_config=make_download_config(local_files_only),
     )
     return list(ds)
 
