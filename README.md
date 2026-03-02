@@ -77,6 +77,19 @@ This writes:
 - contextual gender accuracy (`male`, `female`)
 - contextual intersection accuracy (`black|male`, `black|female`, `white|male`, `white|female`)
 
+Generate plots from the CSV:
+
+```bash
+uv run plot_baseline_vs_prism.py \
+  --csv /data/kell8360/results_baseline_vs_prism.csv \
+  --output-dir /data/kell8360/plots_baseline_vs_prism
+```
+
+Outputs:
+- `overall_comparison.png`
+- `race_gender_comparison.png`
+- `intersectional_comparison.png`
+
 Outputs:
 - `results_prism_gsm8k.csv`: one row per GSM8K question, including sampled PRISM conversation and correctness.
 - `summary_prism_gsm8k.json`: overall and per-group accuracy.
