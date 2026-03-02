@@ -595,29 +595,45 @@ def generate_solution(
     presence_penalty: float,
     enable_thinking: bool,
 ) -> str:
+    def to_model_inputs(encoded: Any) -> Dict[str, Any]:
+        # normalize tokenizer/chat-template outputs across transformers versions
+        if hasattr(encoded, "items"):
+            out: Dict[str, Any] = {}
+            for k, v in encoded.items():
+                out[k] = v.to(model.device) if hasattr(v, "to") else v
+            if "input_ids" in out:
+                return out
+        if torch is not None and torch.is_tensor(encoded):
+            return {"input_ids": encoded.to(model.device)}
+        if isinstance(encoded, (list, tuple)):
+            if torch is None:
+                raise ValueError("Torch is required to build tensor inputs from token lists.")
+            return {"input_ids": torch.tensor([encoded], device=model.device)}
+        raise TypeError(f"Unsupported encoded input type from tokenizer/apply_chat_template: {type(encoded)!r}")
+
     use_chat_template = hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template is not None
     if use_chat_template:
         messages = [
             {"role": "user", "content": prompt},
         ]
         try:
-            input_ids = tokenizer.apply_chat_template(
+            encoded = tokenizer.apply_chat_template(
                 messages,
                 tokenize=True,
                 return_tensors="pt",
                 add_generation_prompt=True,
                 enable_thinking=enable_thinking,
-            ).to(model.device)
+            )
         except TypeError:
-            input_ids = tokenizer.apply_chat_template(
+            encoded = tokenizer.apply_chat_template(
                 messages,
                 tokenize=True,
                 return_tensors="pt",
                 add_generation_prompt=True,
-            ).to(model.device)
-        model_inputs = {"input_ids": input_ids}
+            )
+        model_inputs = to_model_inputs(encoded)
     else:
-        model_inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+        model_inputs = to_model_inputs(tokenizer(prompt, return_tensors="pt"))
 
     gen_kwargs = {
         "max_new_tokens": max_new_tokens,
