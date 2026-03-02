@@ -51,6 +51,32 @@ When `--num-questions` is set, GSM8K examples are randomly sampled by seed by de
 uv run python -m unittest discover -s tests -p "test_*.py"
 ```
 
+## Baseline vs Contextual Script
+
+Run both conditions on the same sampled GSM8K set:
+
+```bash
+uv run benchmark_baseline_vs_prism.py \
+  --model Qwen/Qwen3-4B-Thinking-2507 \
+  --hf-hub-cache /data/resource/huggingface/hub \
+  --prism-local-dir /data/kell8360/prism \
+  --output-dir /data/kell8360 \
+  --create-output-dir \
+  --num-questions 100 \
+  --num-runs 1 \
+  --gsm-sampling random \
+  --balanced-intersectional-sampling \
+  --intersectional-fields race gender \
+  --intersectional-buckets "white|male,white|female,black|male,black|female"
+```
+
+This writes:
+- baseline overall accuracy (question only)
+- contextual overall accuracy
+- contextual race accuracy (`black`, `white`)
+- contextual gender accuracy (`male`, `female`)
+- contextual intersection accuracy (`black|male`, `black|female`, `white|male`, `white|female`)
+
 Outputs:
 - `results_prism_gsm8k.csv`: one row per GSM8K question, including sampled PRISM conversation and correctness.
 - `summary_prism_gsm8k.json`: overall and per-group accuracy.
