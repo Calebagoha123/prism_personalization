@@ -579,13 +579,29 @@ def extract_gold_answer(raw_answer: str) -> Optional[Fraction]:
 
 def strip_think_blocks(text: str) -> str:
     # Remove hidden reasoning spans before answer extraction.
-    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    t = safe_str(text)
+    # Standard format: <think> ... </think>
+    t = re.sub(r"<think>.*?</think>", "", t, flags=re.DOTALL | re.IGNORECASE)
+    # Qwen3 note: output may contain only closing </think> (opening in template).
+    if re.search(r"</think>", t, flags=re.IGNORECASE) and not re.search(r"<think>", t, flags=re.IGNORECASE):
+        parts = re.split(r"</think>", t, maxsplit=1, flags=re.IGNORECASE)
+        if len(parts) == 2:
+            t = parts[1]
+    return t
 
 
 def split_think_and_final_output(text: str) -> Tuple[str, str]:
     t = safe_str(text)
     think_parts = re.findall(r"<think>(.*?)</think>", t, flags=re.DOTALL | re.IGNORECASE)
-    think_trace = "\n\n".join(part.strip() for part in think_parts if part.strip())
+    if think_parts:
+        think_trace = "\n\n".join(part.strip() for part in think_parts if part.strip())
+        final_output = strip_think_blocks(t).strip()
+        return think_trace, final_output
+    if re.search(r"</think>", t, flags=re.IGNORECASE):
+        parts = re.split(r"</think>", t, maxsplit=1, flags=re.IGNORECASE)
+        if len(parts) == 2:
+            return parts[0].strip(), parts[1].strip()
+    think_trace = ""
     final_output = strip_think_blocks(t).strip()
     return think_trace, final_output
 
@@ -843,10 +859,9 @@ def main() -> None:
     )
     thinking_supported = supports_enable_thinking(tokenizer)
     if args.enable_thinking and not thinking_supported:
-        raise ValueError(
-            "Thinking mode requested, but this tokenizer/runtime does not support "
-            "`apply_chat_template(..., enable_thinking=...)`. "
-            "Install transformers>=4.51,<5 and run `uv sync`, or pass --disable-thinking."
+        warnings.warn(
+            "Tokenizer/runtime does not expose `enable_thinking` arg. "
+            "Continuing without explicit flag as Qwen3-4B-Thinking-2507 thinking mode is enabled by default."
         )
     model = AutoModelForCausalLM.from_pretrained(
         args.model,
