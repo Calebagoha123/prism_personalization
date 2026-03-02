@@ -13,6 +13,7 @@ from benchmark_prism_gsm8k import (
     parse_intersectional_buckets,
     race_from_ethnicity_value,
     select_examples,
+    strip_think_blocks,
 )
 
 
@@ -107,6 +108,11 @@ class TestBenchmarkPrismGsm8k(unittest.TestCase):
             "gender": "male",
         }
         self.assertEqual(get_demographic_value(demographics, "race"), "White")
+
+    def test_extract_ignores_numbers_inside_think_block(self) -> None:
+        output = "<think>try 7 then 8</think>\nFinal answer: \\boxed{12}"
+        self.assertEqual(strip_think_blocks(output), "\nFinal answer: \\boxed{12}")
+        self.assertEqual(extract_number_fraction(output), Fraction(12, 1))
 
 if __name__ == "__main__":
     unittest.main()

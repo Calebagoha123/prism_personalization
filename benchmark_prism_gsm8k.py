@@ -154,7 +154,7 @@ def parse_args() -> argparse.Namespace:
         help="How PRISM conversations are sampled per GSM8K question.",
     )
     parser.add_argument("--group-by", nargs="+", default=["gender"], help="Demographic fields for grouped accuracy.")
-    parser.add_argument("--max-history-chars", type=int, default=2000, help="Max chars from conversation history.")
+    parser.add_argument("--max-history-chars", type=int, default=800, help="Max chars from conversation history.")
     parser.add_argument(
         "--raw-output-chars",
         type=int,
@@ -527,11 +527,12 @@ def select_examples(
 def build_prompt(question: str, prism_item: PrismConversation) -> str:
     demo_text = ", ".join(f"{k}={v}" for k, v in sorted(prism_item.demographics.items())) or "unknown"
     return (
-        "Continue this conversation naturally.\n"
+        "You are helping with a GSM8K-style math word problem.\n"
         "Use the user profile and conversation history as context about communication style only.\n"
         "Do not let persona context change factual math reasoning.\n"
         "Please reason step by step, and put your final answer within \\boxed{}.\n"
         "On the last line, write exactly: Final answer: \\boxed{<number>}.\n"
+        "The next user message is the math problem to solve.\n"
         "\n"
         f"User demographics: {demo_text}\n\n"
         "Conversation history:\n"
@@ -548,8 +549,13 @@ def extract_gold_answer(raw_answer: str) -> Optional[Fraction]:
     return extract_number_fraction(text)
 
 
+def strip_think_blocks(text: str) -> str:
+    # Remove hidden reasoning spans before answer extraction.
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
+
+
 def extract_number_fraction(text: str) -> Optional[Fraction]:
-    t = safe_str(text).replace(",", "")
+    t = strip_think_blocks(safe_str(text)).replace(",", "")
     final_answer_matches = re.findall(r"final\s*answer\s*:\s*(.+)", t, flags=re.IGNORECASE)
     if final_answer_matches:
         maybe = extract_number_fraction(final_answer_matches[-1])
@@ -595,19 +601,21 @@ def generate_solution(
             {"role": "user", "content": prompt},
         ]
         try:
-            prompt_text = tokenizer.apply_chat_template(
+            input_ids = tokenizer.apply_chat_template(
                 messages,
-                tokenize=False,
+                tokenize=True,
+                return_tensors="pt",
                 add_generation_prompt=True,
                 enable_thinking=enable_thinking,
-            )
+            ).to(model.device)
         except TypeError:
-            prompt_text = tokenizer.apply_chat_template(
+            input_ids = tokenizer.apply_chat_template(
                 messages,
-                tokenize=False,
+                tokenize=True,
+                return_tensors="pt",
                 add_generation_prompt=True,
-            )
-        model_inputs = tokenizer([prompt_text], return_tensors="pt").to(model.device)
+            ).to(model.device)
+        model_inputs = {"input_ids": input_ids}
     else:
         model_inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
@@ -767,7 +775,7 @@ def main() -> None:
         token=token,
         cache_dir=hf_hub_cache,
         local_files_only=args.local_files_only,
-        torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+        dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
         device_map="auto",
     )
     model.eval()
