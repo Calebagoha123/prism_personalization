@@ -170,6 +170,7 @@ def main() -> None:
 
     try:
         from dotenv import load_dotenv
+        from tqdm import tqdm
         from transformers import AutoModelForCausalLM, AutoTokenizer
     except ImportError as exc:  # pragma: no cover
         raise ImportError("Missing required dependencies. Run `uv sync`.") from exc
@@ -239,7 +240,7 @@ def main() -> None:
         else:
             sampler = ConversationSampler(prism_items, args.sampling_strategy, args.seed + run_idx)
 
-        for i, example in enumerate(gsm_examples):
+        for i, example in enumerate(tqdm(gsm_examples, desc=f"Evaluating run {run_idx + 1}/{args.num_runs}")):
             question = safe_str(example.get("question"))
             gold_frac = extract_gold_answer(safe_str(example.get("answer")))
             if gold_frac is None:
