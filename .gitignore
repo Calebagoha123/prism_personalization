@@ -1,0 +1,5 @@
+.env
+__pycache__/
+*.pyc
+results_prism_gsm8k.csv
+summary_prism_gsm8k.json

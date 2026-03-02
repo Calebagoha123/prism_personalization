@@ -1,0 +1,13 @@
+[project]
+name = "prism-personalization"
+version = "0.1.0"
+description = "GSM8K benchmark with PRISM conversation and demographic conditioning."
+requires-python = ">=3.10"
+dependencies = [
+  "datasets>=2.19.0",
+  "python-dotenv>=1.0.1",
+  "torch>=2.2.0",
+  "tqdm>=4.66.0",
+  "transformers>=4.41.0",
+]
+
