@@ -13,6 +13,7 @@ from benchmark_prism_gsm8k import (
     parse_intersectional_buckets,
     race_from_ethnicity_value,
     select_examples,
+    split_think_and_final_output,
     strip_think_blocks,
 )
 
@@ -113,6 +114,12 @@ class TestBenchmarkPrismGsm8k(unittest.TestCase):
         output = "<think>try 7 then 8</think>\nFinal answer: \\boxed{12}"
         self.assertEqual(strip_think_blocks(output), "\nFinal answer: \\boxed{12}")
         self.assertEqual(extract_number_fraction(output), Fraction(12, 1))
+
+    def test_split_think_and_final_output(self) -> None:
+        output = "<think>step 1\nstep 2</think>\nFinal answer: \\boxed{5}"
+        think, final_out = split_think_and_final_output(output)
+        self.assertIn("step 1", think)
+        self.assertEqual(final_out, "Final answer: \\boxed{5}")
 
 if __name__ == "__main__":
     unittest.main()

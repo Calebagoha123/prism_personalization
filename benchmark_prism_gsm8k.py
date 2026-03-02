@@ -162,6 +162,24 @@ def parse_args() -> argparse.Namespace:
         help="How many chars of raw model output to save per row for debugging.",
     )
     parser.add_argument(
+        "--min-new-tokens",
+        type=int,
+        default=64,
+        help="Minimum number of new tokens to generate when supported by the model.",
+    )
+    parser.add_argument(
+        "--retry-unparsed",
+        type=int,
+        default=0,
+        help="Number of retry attempts when no numeric answer can be parsed from generation.",
+    )
+    parser.add_argument(
+        "--retry-max-new-tokens",
+        type=int,
+        default=512,
+        help="Max new tokens for retry generations when answer parsing fails.",
+    )
+    parser.add_argument(
         "--save-full-outputs",
         action="store_true",
         help="Write full, untruncated model outputs to JSONL.",
@@ -564,6 +582,14 @@ def strip_think_blocks(text: str) -> str:
     return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
 
 
+def split_think_and_final_output(text: str) -> Tuple[str, str]:
+    t = safe_str(text)
+    think_parts = re.findall(r"<think>(.*?)</think>", t, flags=re.DOTALL | re.IGNORECASE)
+    think_trace = "\n\n".join(part.strip() for part in think_parts if part.strip())
+    final_output = strip_think_blocks(t).strip()
+    return think_trace, final_output
+
+
 def extract_number_fraction(text: str) -> Optional[Fraction]:
     t = strip_think_blocks(safe_str(text)).replace(",", "")
     final_answer_matches = re.findall(r"final\s*answer\s*:\s*(.+)", t, flags=re.IGNORECASE)
@@ -598,6 +624,7 @@ def generate_solution(
     tokenizer: "AutoTokenizer",
     prompt: str,
     max_new_tokens: int,
+    min_new_tokens: int,
     temperature: float,
     top_p: float,
     top_k: int,
@@ -647,6 +674,7 @@ def generate_solution(
 
     gen_kwargs = {
         "max_new_tokens": max_new_tokens,
+        "min_new_tokens": min_new_tokens,
         "do_sample": True,
         "temperature": temperature,
         "top_p": top_p,
@@ -852,6 +880,7 @@ def main() -> None:
                 tokenizer=tokenizer,
                 prompt=prompt,
                 max_new_tokens=args.max_new_tokens,
+                min_new_tokens=args.min_new_tokens,
                 temperature=args.temperature,
                 top_p=args.top_p,
                 top_k=args.top_k,
@@ -860,9 +889,35 @@ def main() -> None:
                 enable_thinking=args.enable_thinking,
             )
             pred = extract_number_fraction(generation)
+            if pred is None and args.retry_unparsed > 0:
+                for _ in range(args.retry_unparsed):
+                    retry_prompt = (
+                        "Solve this GSM8K math problem.\n"
+                        "Output exactly one final line in this format: Final answer: \\boxed{<number>}.\n"
+                        "Do not include any additional text after that line.\n\n"
+                        f"Problem:\n{question}\n"
+                    )
+                    retry_output = generate_solution(
+                        model=model,
+                        tokenizer=tokenizer,
+                        prompt=retry_prompt,
+                        max_new_tokens=args.retry_max_new_tokens,
+                        min_new_tokens=min(args.min_new_tokens, args.retry_max_new_tokens),
+                        temperature=args.temperature,
+                        top_p=args.top_p,
+                        top_k=args.top_k,
+                        min_p=args.min_p,
+                        presence_penalty=args.presence_penalty,
+                        enable_thinking=args.enable_thinking,
+                    )
+                    generation = f"{generation}\n\n[retry_output]\n{retry_output}"
+                    pred = extract_number_fraction(retry_output)
+                    if pred is not None:
+                        break
             is_correct = pred == gold if pred is not None else False
             run_correct += int(is_correct)
             run_total += 1
+            think_trace, final_output = split_think_and_final_output(generation)
 
             row = {
                 "run": run_idx,
@@ -875,6 +930,8 @@ def main() -> None:
                 "prediction": str(pred) if pred is not None else "",
                 "correct": int(is_correct),
                 "raw_output_excerpt": generation[: args.raw_output_chars],
+                "thinking_trace_excerpt": think_trace[: args.raw_output_chars],
+                "final_output_excerpt": final_output[: args.raw_output_chars],
             }
             for field in args.group_by:
                 row[field] = get_demographic_value(prism_item.demographics, field) or "unknown"
@@ -891,6 +948,8 @@ def main() -> None:
                     "prediction": str(pred) if pred is not None else "",
                     "correct": int(is_correct),
                     "raw_output": generation,
+                    "thinking_trace": think_trace,
+                    "final_output": final_output,
                 }
                 for field in args.group_by:
                     full_record[field] = get_demographic_value(prism_item.demographics, field) or "unknown"
@@ -932,6 +991,9 @@ def main() -> None:
             "min_p": args.min_p,
             "presence_penalty": args.presence_penalty,
             "max_new_tokens": args.max_new_tokens,
+            "min_new_tokens": args.min_new_tokens,
+            "retry_unparsed": args.retry_unparsed,
+            "retry_max_new_tokens": args.retry_max_new_tokens,
         },
         "output_dir": output_dir,
         "output_csv": output_csv_path,
