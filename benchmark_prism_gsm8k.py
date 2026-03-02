@@ -515,11 +515,6 @@ def resolve_output_path(output_dir: str, filename_or_path: str) -> str:
 
 def main() -> None:
     args = parse_args()
-    load_dotenv()
-    token = os.getenv(args.hf_token_env)
-    if not token:
-        raise ValueError(f"Missing Hugging Face token in env var '{args.hf_token_env}'.")
-
     try:
         from dotenv import load_dotenv
     except ImportError as exc:  # pragma: no cover
@@ -535,6 +530,11 @@ def main() -> None:
         from transformers import AutoModelForCausalLM, AutoTokenizer
     except ImportError as exc:  # pragma: no cover
         raise ImportError("Missing 'transformers' package. Install dependencies before running benchmark.") from exc
+
+    load_dotenv()
+    token = os.getenv(args.hf_token_env)
+    if not token:
+        raise ValueError(f"Missing Hugging Face token in env var '{args.hf_token_env}'.")
 
     random.seed(args.seed)
     torch.manual_seed(args.seed)
