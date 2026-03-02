@@ -155,6 +155,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--group-by", nargs="+", default=["gender"], help="Demographic fields for grouped accuracy.")
     parser.add_argument("--max-history-chars", type=int, default=2000, help="Max chars from conversation history.")
+    parser.add_argument(
+        "--raw-output-chars",
+        type=int,
+        default=2000,
+        help="How many chars of raw model output to save per row for debugging.",
+    )
     parser.add_argument("--max-new-tokens", type=int, default=32768, help="Generation cap.")
     parser.add_argument("--temperature", type=float, default=0.6, help="Sampling temperature.")
     parser.add_argument("--top-p", type=float, default=0.95, help="Nucleus sampling top-p.")
@@ -525,6 +531,7 @@ def build_prompt(question: str, prism_item: PrismConversation) -> str:
         "Use the user profile and conversation history as context about communication style only.\n"
         "Do not let persona context change factual math reasoning.\n"
         "Please reason step by step, and put your final answer within \\boxed{}.\n"
+        "On the last line, write exactly: Final answer: \\boxed{<number>}.\n"
         "\n"
         f"User demographics: {demo_text}\n\n"
         "Conversation history:\n"
@@ -543,9 +550,17 @@ def extract_gold_answer(raw_answer: str) -> Optional[Fraction]:
 
 def extract_number_fraction(text: str) -> Optional[Fraction]:
     t = safe_str(text).replace(",", "")
+    final_answer_matches = re.findall(r"final\s*answer\s*:\s*(.+)", t, flags=re.IGNORECASE)
+    if final_answer_matches:
+        maybe = extract_number_fraction(final_answer_matches[-1])
+        if maybe is not None:
+            return maybe
     boxed_matches = re.findall(r"\\boxed\{([^}]*)\}", t)
     if boxed_matches:
-        t = boxed_matches[-1]
+        boxed = boxed_matches[-1]
+        maybe = extract_number_fraction(boxed)
+        if maybe is not None:
+            return maybe
     frac_match = re.search(r"(-?\d+)\s*/\s*(-?\d+)", t)
     if frac_match:
         num = int(frac_match.group(1))
@@ -821,6 +836,7 @@ def main() -> None:
                 "gold": str(gold),
                 "prediction": str(pred) if pred is not None else "",
                 "correct": int(is_correct),
+                "raw_output_excerpt": generation[: args.raw_output_chars],
             }
             for field in args.group_by:
                 row[field] = get_demographic_value(prism_item.demographics, field) or "unknown"
