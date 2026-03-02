@@ -121,5 +121,12 @@ class TestBenchmarkPrismGsm8k(unittest.TestCase):
         self.assertIn("step 1", think)
         self.assertEqual(final_out, "Final answer: \\boxed{5}")
 
+    def test_closing_tag_only_think_is_handled(self) -> None:
+        output = "scratch reasoning line\nmore steps</think>\nFinal answer: \\boxed{9}"
+        think, final_out = split_think_and_final_output(output)
+        self.assertIn("scratch reasoning line", think)
+        self.assertEqual(final_out, "Final answer: \\boxed{9}")
+        self.assertEqual(extract_number_fraction(output), Fraction(9, 1))
+
 if __name__ == "__main__":
     unittest.main()
