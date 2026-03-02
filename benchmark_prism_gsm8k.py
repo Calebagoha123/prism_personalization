@@ -696,6 +696,22 @@ def generate_solution(
     return tokenizer.decode(generated, skip_special_tokens=True)
 
 
+def supports_enable_thinking(tokenizer: "AutoTokenizer") -> bool:
+    if not (hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template is not None):
+        return False
+    probe_messages = [{"role": "user", "content": "ping"}]
+    try:
+        tokenizer.apply_chat_template(
+            probe_messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=True,
+        )
+        return True
+    except TypeError:
+        return False
+
+
 def compute_group_metrics(rows: List[Dict[str, Any]], group_by: List[str]) -> Dict[str, Any]:
     grouped: Dict[str, Dict[str, Dict[str, float]]] = {}
     for field in group_by:
@@ -825,6 +841,13 @@ def main() -> None:
         cache_dir=hf_hub_cache,
         local_files_only=args.local_files_only,
     )
+    thinking_supported = supports_enable_thinking(tokenizer)
+    if args.enable_thinking and not thinking_supported:
+        raise ValueError(
+            "Thinking mode requested, but this tokenizer/runtime does not support "
+            "`apply_chat_template(..., enable_thinking=...)`. "
+            "Install transformers>=4.51,<5 and run `uv sync`, or pass --disable-thinking."
+        )
     model = AutoModelForCausalLM.from_pretrained(
         args.model,
         token=token,
@@ -985,6 +1008,7 @@ def main() -> None:
         "local_files_only": args.local_files_only,
         "generation": {
             "enable_thinking": args.enable_thinking,
+            "thinking_supported": thinking_supported,
             "temperature": args.temperature,
             "top_p": args.top_p,
             "top_k": args.top_k,
