@@ -90,6 +90,22 @@ Outputs:
 - `figures/plots_baseline_vs_prism/race_gender_comparison.png`
 - `figures/plots_baseline_vs_prism/intersectional_comparison.png`
 
+Aggregate multi-seed overnight runs and plot pooled figures:
+
+```bash
+uv run aggregate_overnight_results.py \
+  --input-glob "/data/kell8360/overnight/results_seed_*.csv" \
+  --output-dir figures/overnight_aggregate
+```
+
+Outputs:
+- `figures/overnight_aggregate/aggregate_summary.json`
+- `figures/overnight_aggregate/seed_level_metrics.csv`
+- `figures/overnight_aggregate/pooled_group_metrics.csv`
+- `figures/overnight_aggregate/overall_seed_mean_std.png`
+- `figures/overnight_aggregate/overall_pooled_ci.png`
+- `figures/overnight_aggregate/intersectional_pooled_ci.png`
+
 Outputs:
 - `results_prism_gsm8k.csv`: one row per GSM8K question, including sampled PRISM conversation and correctness.
 - `summary_prism_gsm8k.json`: overall and per-group accuracy.
